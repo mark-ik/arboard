@@ -453,6 +453,20 @@ impl Inner {
 		Ok(current == self.server.win_id)
 	}
 
+	/// Interns a MIME string as an X11 target atom. With `only_if_exists`, a name
+	/// that no client has ever interned resolves to `NONE` rather than being
+	/// created, which lets a read report an absent format without leaking an atom.
+	fn intern_atom(&self, name: &str, only_if_exists: bool) -> Result<Atom> {
+		Ok(self
+			.server
+			.conn
+			.intern_atom(only_if_exists, name.as_bytes())
+			.map_err(into_unknown)?
+			.reply()
+			.map_err(into_unknown)?
+			.atom)
+	}
+
 	fn atom_name(&self, atom: x11rb::protocol::xproto::Atom) -> Result<String> {
 		String::from_utf8(
 			self.server
@@ -1076,6 +1090,59 @@ impl Clipboard {
 		self.add_clipboard_exclusions(exclude_from_history, &mut data);
 
 		self.inner.write(data, selection, wait)
+	}
+
+	pub(crate) fn get_custom(
+		&self,
+		media_type: &str,
+		selection: LinuxClipboardKind,
+	) -> Result<Vec<u8>> {
+		let format = self.inner.intern_atom(media_type, true)?;
+		if format == NONE {
+			// No X client has ever named this target, so it cannot be present.
+			return Err(Error::ContentNotAvailable);
+		}
+		Ok(self.inner.read(&[format], selection)?.bytes)
+	}
+
+	/// Writes every representation in `data` under one selection ownership so they
+	/// coexist, mirroring the one-shot targets the selection server already serves.
+	pub(crate) fn set_data(
+		&self,
+		data: &crate::common::ClipboardData,
+		selection: LinuxClipboardKind,
+		wait: WaitConfig,
+		exclude_from_history: bool,
+	) -> Result<()> {
+		let mut items = Vec::new();
+
+		if let Some(text) = &data.text {
+			items.push(ClipboardData {
+				bytes: text.as_bytes().to_vec(),
+				format: self.inner.atoms.UTF8_STRING,
+			});
+		}
+		if let Some(html) = &data.html {
+			items.push(ClipboardData {
+				bytes: html.as_bytes().to_vec(),
+				format: self.inner.atoms.HTML,
+			});
+		}
+		#[cfg(feature = "image-data")]
+		if let Some(image) = &data.image {
+			items.push(ClipboardData {
+				bytes: encode_as_png(image)?,
+				format: self.inner.atoms.PNG_MIME,
+			});
+		}
+		for item in &data.custom {
+			let format = self.inner.intern_atom(&item.media_type, false)?;
+			items.push(ClipboardData { bytes: item.data.clone(), format });
+		}
+
+		self.add_clipboard_exclusions(exclude_from_history, &mut items);
+
+		self.inner.write(items, selection, wait)
 	}
 }
 

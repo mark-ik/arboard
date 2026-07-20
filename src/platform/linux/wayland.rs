@@ -262,4 +262,58 @@ impl Clipboard {
 
 		opts.copy_multi(sources).map_err(handle_copy_error)
 	}
+
+	pub(crate) fn get_custom(
+		&mut self,
+		media_type: &str,
+		selection: LinuxClipboardKind,
+	) -> Result<Vec<u8>, Error> {
+		handle_clipboard_read(selection, paste::MimeType::Specific(media_type), Ok)
+	}
+
+	/// Advertises every representation in `data` from a single data source so they
+	/// coexist, the same one-shot multi-mime write the `set_*` methods build on.
+	pub(crate) fn set_data(
+		&self,
+		data: &crate::common::ClipboardData,
+		selection: LinuxClipboardKind,
+		wait: WaitConfig,
+		exclude_from_history: bool,
+	) -> Result<(), Error> {
+		let mut opts = Options::new();
+		opts.foreground(matches!(wait, WaitConfig::Forever));
+		opts.clipboard(selection.try_into()?);
+
+		let mut sources = Vec::new();
+
+		if let Some(text) = &data.text {
+			sources.push(MimeSource {
+				source: Source::Bytes(text.as_bytes().into()),
+				mime_type: MimeType::Text,
+			});
+		}
+		if let Some(html) = &data.html {
+			sources.push(MimeSource {
+				source: Source::Bytes(html.as_bytes().into()),
+				mime_type: MimeType::Specific(String::from("text/html")),
+			});
+		}
+		#[cfg(feature = "image-data")]
+		if let Some(image) = &data.image {
+			sources.push(MimeSource {
+				source: Source::Bytes(encode_as_png(image)?.into()),
+				mime_type: MimeType::Specific(String::from(MIME_PNG)),
+			});
+		}
+		for item in &data.custom {
+			sources.push(MimeSource {
+				source: Source::Bytes(item.data.as_slice().into()),
+				mime_type: MimeType::Specific(item.media_type.clone()),
+			});
+		}
+
+		add_clipboard_exclusions(exclude_from_history, &mut sources);
+
+		opts.copy_multi(sources).map_err(handle_copy_error)
+	}
 }

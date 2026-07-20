@@ -193,8 +193,12 @@ impl<'clipboard> Get<'clipboard> {
 		}
 	}
 
-	pub(crate) fn custom(self, _media_type: &str) -> Result<Vec<u8>, Error> {
-		Err(Error::unknown("custom formats not yet implemented on Linux"))
+	pub(crate) fn custom(self, media_type: &str) -> Result<Vec<u8>, Error> {
+		match self.clipboard {
+			Clipboard::X11(clipboard) => clipboard.get_custom(media_type, self.selection),
+			#[cfg(feature = "wayland-data-control")]
+			Clipboard::WlDataControl(clipboard) => clipboard.get_custom(media_type, self.selection),
+		}
 	}
 }
 
@@ -304,8 +308,16 @@ impl<'clipboard> Set<'clipboard> {
 		}
 	}
 
-	pub(crate) fn data(self, _data: &crate::common::ClipboardData) -> Result<(), Error> {
-		Err(Error::unknown("multi-format set_data not yet implemented on Linux"))
+	pub(crate) fn data(self, data: &crate::common::ClipboardData) -> Result<(), Error> {
+		match self.clipboard {
+			Clipboard::X11(clipboard) => {
+				clipboard.set_data(data, self.selection, self.wait, self.exclude_from_history)
+			}
+			#[cfg(feature = "wayland-data-control")]
+			Clipboard::WlDataControl(clipboard) => {
+				clipboard.set_data(data, self.selection, self.wait, self.exclude_from_history)
+			}
+		}
 	}
 }
 
