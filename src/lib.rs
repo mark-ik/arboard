@@ -16,6 +16,7 @@ use std::{
 };
 
 pub use common::Error;
+pub use common::{ClipboardData, CustomItem};
 #[cfg(feature = "image-data")]
 pub use common::ImageData;
 
@@ -147,6 +148,29 @@ impl Clipboard {
 		self.set().image(image)
 	}
 
+	/// Reads one arbitrary representation from the clipboard by its MIME type.
+	///
+	/// The MIME string is matched against the platform's own format identity (a
+	/// Win32 registered format, an X11 target, a Wayland mime type, a macOS UTI).
+	///
+	/// # Errors
+	///
+	/// Returns [`Error::ContentNotAvailable`] if no such format is present.
+	pub fn get_custom(&mut self, media_type: &str) -> Result<Vec<u8>, Error> {
+		self.get().custom(media_type)
+	}
+
+	/// Places a multi-representation payload onto the clipboard in a single
+	/// session, so the representations coexist. Unlike the `set_*` methods, which
+	/// each empty the clipboard, this writes every field of `data` at once.
+	///
+	/// # Errors
+	///
+	/// Returns error if the payload could not be placed on the clipboard.
+	pub fn set_data(&mut self, data: &ClipboardData) -> Result<(), Error> {
+		self.set().data(data)
+	}
+
 	/// Clears any contents that may be present from the platform's default clipboard,
 	/// regardless of the format of the data.
 	///
@@ -205,6 +229,12 @@ impl Get<'_> {
 	pub fn file_list(self) -> Result<Vec<PathBuf>, Error> {
 		self.platform.file_list()
 	}
+
+	/// Completes the "get" operation by fetching an arbitrary representation by
+	/// its MIME type.
+	pub fn custom(self, media_type: &str) -> Result<Vec<u8>, Error> {
+		self.platform.custom(media_type)
+	}
 }
 
 /// A builder for an operation that sets a value to the clipboard.
@@ -250,6 +280,12 @@ impl Set<'_> {
 	/// Completes the "set" operation by placing a list of file paths onto the clipboard.
 	pub fn file_list(self, file_list: &[impl AsRef<Path>]) -> Result<(), Error> {
 		self.platform.file_list(file_list)
+	}
+
+	/// Completes the "set" operation by placing a multi-representation payload
+	/// onto the clipboard in one session, so the representations coexist.
+	pub fn data(self, data: &ClipboardData) -> Result<(), Error> {
+		self.platform.data(data)
 	}
 }
 

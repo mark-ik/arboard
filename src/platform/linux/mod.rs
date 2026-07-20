@@ -192,6 +192,10 @@ impl<'clipboard> Get<'clipboard> {
 			Clipboard::WlDataControl(clipboard) => clipboard.get_file_list(self.selection),
 		}
 	}
+
+	pub(crate) fn custom(self, _media_type: &str) -> Result<Vec<u8>, Error> {
+		Err(Error::unknown("custom formats not yet implemented on Linux"))
+	}
 }
 
 /// Linux-specific extensions to the [`Get`](super::Get) builder.
@@ -298,6 +302,10 @@ impl<'clipboard> Set<'clipboard> {
 				self.exclude_from_history,
 			),
 		}
+	}
+
+	pub(crate) fn data(self, _data: &crate::common::ClipboardData) -> Result<(), Error> {
+		Err(Error::unknown("multi-format set_data not yet implemented on Linux"))
 	}
 }
 

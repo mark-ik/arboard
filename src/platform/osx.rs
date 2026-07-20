@@ -276,6 +276,10 @@ impl<'clipboard> Get<'clipboard> {
 				.ok_or(Error::ContentNotAvailable)
 		})
 	}
+
+	pub(crate) fn custom(self, _media_type: &str) -> Result<Vec<u8>, Error> {
+		Err(Error::unknown("custom formats not yet implemented on macOS"))
+	}
 }
 
 pub(crate) struct Set<'clipboard> {
@@ -389,6 +393,10 @@ impl<'clipboard> Set<'clipboard> {
 		} else {
 			Err(Error::unknown("NSPasteboard#writeObjects: returned false"))
 		}
+	}
+
+	pub(crate) fn data(self, _data: &crate::common::ClipboardData) -> Result<(), Error> {
+		Err(Error::unknown("multi-format set_data not yet implemented on macOS"))
 	}
 }
 

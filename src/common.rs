@@ -149,6 +149,30 @@ impl ImageData<'_> {
 	}
 }
 
+/// One arbitrary clipboard representation: a MIME type and its raw bytes.
+///
+/// The MIME string maps to the platform's own format identity (a Win32
+/// registered format, an X11 target, a Wayland mime type, a macOS UTI), so two
+/// applications that agree on a name round-trip its bytes.
+#[derive(Debug, Clone)]
+pub struct CustomItem {
+	pub media_type: String,
+	pub data: Vec<u8>,
+}
+
+/// A multi-representation clipboard payload, written in one session by
+/// [`Clipboard::set_data`](crate::Clipboard::set_data) so the representations
+/// coexist, unlike the one-at-a-time `set_*` methods that each empty the
+/// clipboard. Build it from `Default` and fill the fields you have.
+#[derive(Default)]
+pub struct ClipboardData<'a> {
+	pub text: Option<Cow<'a, str>>,
+	pub html: Option<Cow<'a, str>>,
+	#[cfg(feature = "image-data")]
+	pub image: Option<ImageData<'a>>,
+	pub custom: Vec<CustomItem>,
+}
+
 #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 pub(crate) struct ScopeGuard<F: FnOnce()> {
 	callback: Option<F>,

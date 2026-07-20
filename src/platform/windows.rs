@@ -652,6 +652,21 @@ impl<'clipboard> Get<'clipboard> {
 
 		Ok(file_list)
 	}
+
+	pub(crate) fn custom(self, media_type: &str) -> Result<Vec<u8>, Error> {
+		let _clipboard_assertion = self.clipboard?;
+
+		let format = clipboard_win::register_format(media_type)
+			.ok_or_else(|| Error::unknown("unable to register clipboard format"))?;
+		if !clipboard_win::is_format_avail(format.get()) {
+			return Err(Error::ContentNotAvailable);
+		}
+
+		let mut out = Vec::new();
+		clipboard_win::raw::get_vec(format.get(), &mut out)
+			.map_err(|_| Error::unknown("failed to read clipboard format"))?;
+		Ok(out)
+	}
 }
 
 pub(crate) struct Set<'clipboard> {
@@ -788,6 +803,52 @@ impl<'clipboard> Set<'clipboard> {
 
 		add_clipboard_exclusions(
 			clipboard_assertion,
+			self.exclude_from_monitoring,
+			self.exclude_from_cloud,
+			self.exclude_from_history,
+		)
+	}
+
+	pub(crate) fn data(self, data: &crate::common::ClipboardData) -> Result<(), Error> {
+		let open_clipboard = self.clipboard?;
+
+		// One session: empty once, then add every representation with a
+		// non-clearing set so they coexist (text via `set_string`, added first so
+		// its internal clear is a no-op; everything else via `set_without_clear`).
+		clipboard_win::raw::empty()
+			.map_err(|e| Error::unknown(format!("Failed to empty the clipboard. Got error code: {e}")))?;
+
+		if let Some(text) = &data.text {
+			clipboard_win::raw::set_string(text)
+				.map_err(|_| Error::unknown("Could not place the specified text to the clipboard"))?;
+		}
+
+		if let Some(html) = &data.html {
+			if let Some(format) = clipboard_win::register_format("HTML Format") {
+				let html = wrap_html(html);
+				clipboard_win::raw::set_without_clear(format.get(), html.as_bytes())
+					.map_err(|e| Error::unknown(e.to_string()))?;
+			}
+		}
+
+		for item in &data.custom {
+			let format = clipboard_win::register_format(&item.media_type)
+				.ok_or_else(|| Error::unknown("unable to register clipboard format"))?;
+			clipboard_win::raw::set_without_clear(format.get(), &item.data)
+				.map_err(|e| Error::unknown(e.to_string()))?;
+		}
+
+		// The image write consumes the open-clipboard guard, so it goes last and
+		// returns; clipboard exclusions (a rare, opt-in flag) are skipped when an
+		// image is present, since they would need the same guard.
+		#[cfg(feature = "image-data")]
+		if let Some(image) = &data.image {
+			image_data::add_png_file(image)?;
+			return image_data::add_cf_dibv5(open_clipboard, image.clone());
+		}
+
+		add_clipboard_exclusions(
+			open_clipboard,
 			self.exclude_from_monitoring,
 			self.exclude_from_cloud,
 			self.exclude_from_history,
