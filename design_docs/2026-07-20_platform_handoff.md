@@ -1,5 +1,9 @@
 # Hand-off: implement custom clipboard formats on macOS / X11 / Wayland
 
+> **DONE 2026-07-20.** macOS (`f40763b`) and Linux X11 + Wayland (`fac2660`) were
+> implemented on their hosts via this note. Kept for the record and as the model
+> for future per-host hand-offs.
+
 You are picking this up on a Mac or Linux host. Your job is to implement, for
 **this** platform, the two clipboard additions this fork introduces, then verify
 them on the real OS clipboard here (which the Windows author could not do). This
@@ -62,7 +66,7 @@ Design notes and the full per-platform plan:
 
 ## How to verify (do this on this host)
 
-```
+```sh
 cargo test --test custom_formats -- --ignored
 ```
 

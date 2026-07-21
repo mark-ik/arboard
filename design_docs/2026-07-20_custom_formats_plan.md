@@ -4,6 +4,15 @@ Fork of 1Password/arboard 3.6.1 (`mark-ik/arboard`, branch `custom-formats`).
 Adds what genet's clipboard capability (P3) needs and stock arboard lacks:
 arbitrary MIME formats, and holding several representations at once.
 
+## Status (2026-07-20)
+
+All four platforms implemented. Windows (`b8c1e11`) was written and verified
+on-host by the Windows author; macOS (`f40763b`) and Linux X11 + Wayland
+(`fac2660`) were implemented on their own hosts through the platform hand-off
+note, each following the Windows reference and the same `custom_formats` on-host
+test. Verify each with `cargo test --test custom_formats -- --ignored` on that
+host.
+
 ## Why
 
 arboard writes one representation per `set` (each empties the clipboard), and it
