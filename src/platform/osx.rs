@@ -21,7 +21,7 @@ use objc2_app_kit::{
 	NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString,
 	NSPasteboardURLReadingFileURLsOnlyKey,
 };
-use objc2_foundation::{ns_string, NSArray, NSDictionary, NSNumber, NSString, NSURL};
+use objc2_foundation::{ns_string, NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
 use std::{
 	borrow::Cow,
 	panic::{RefUnwindSafe, UnwindSafe},
@@ -277,8 +277,17 @@ impl<'clipboard> Get<'clipboard> {
 		})
 	}
 
-	pub(crate) fn custom(self, _media_type: &str) -> Result<Vec<u8>, Error> {
-		Err(Error::unknown("custom formats not yet implemented on macOS"))
+	pub(crate) fn custom(self, media_type: &str) -> Result<Vec<u8>, Error> {
+		// The MIME string is used verbatim as the pasteboard type, matching what
+		// `Set::data` declares, so any format written there reads back here.
+		autoreleasepool(|_| {
+			let media_type = NSString::from_str(media_type);
+			let data = unsafe { self.clipboard.pasteboard.dataForType(&media_type) }
+				.ok_or(Error::ContentNotAvailable)?;
+
+			// Copy the bytes out before the pool drains the `NSData`.
+			Ok(data.to_vec())
+		})
 	}
 }
 
@@ -395,8 +404,76 @@ impl<'clipboard> Set<'clipboard> {
 		}
 	}
 
-	pub(crate) fn data(self, _data: &crate::common::ClipboardData) -> Result<(), Error> {
-		Err(Error::unknown("multi-format set_data not yet implemented on macOS"))
+	pub(crate) fn data(self, data: &crate::common::ClipboardData) -> Result<(), Error> {
+		// What to write for a declared pasteboard type: a UTF-8 string (text and
+		// html) or raw bytes (image and custom formats).
+		enum Payload {
+			Str(Retained<NSString>),
+			Data(Retained<NSData>),
+		}
+
+		// Own the custom type names so the `&NSString` pushed below outlives the
+		// whole session.
+		let custom_types: Vec<Retained<NSString>> =
+			data.custom.iter().map(|item| NSString::from_str(&item.media_type)).collect();
+
+		// Gather every representation up front so a conversion failure (e.g. a
+		// bad image) leaves the current clipboard untouched, not half-written.
+		let mut entries: Vec<(&NSString, Payload)> = Vec::new();
+
+		if let Some(text) = &data.text {
+			entries
+				.push((unsafe { NSPasteboardTypeString }, Payload::Str(NSString::from_str(text))));
+		}
+		if let Some(html) = &data.html {
+			// Written raw, unlike the single-format `html` setter which wraps the
+			// markup for Windows-Latin-1 safety, so the exact bytes round-trip
+			// app-to-app (matching the X11 backend).
+			entries.push((unsafe { NSPasteboardTypeHTML }, Payload::Str(NSString::from_str(html))));
+		}
+		#[cfg(feature = "image-data")]
+		if let Some(image) = &data.image {
+			use objc2_app_kit::NSPasteboardTypeTIFF;
+
+			let ns_image =
+				image_from_pixels(image.bytes.as_ref().to_vec(), image.width, image.height)?;
+			let tiff = unsafe { ns_image.TIFFRepresentation() }.ok_or(Error::ConversionFailure)?;
+			entries.push((unsafe { NSPasteboardTypeTIFF }, Payload::Data(tiff)));
+		}
+		for (item, media_type) in data.custom.iter().zip(custom_types.iter()) {
+			entries.push((&**media_type, Payload::Data(NSData::with_bytes(&item.data))));
+		}
+
+		// The opt-in exclusion marker is declared alongside the payload types so
+		// its `setString` below takes effect (declareTypes replaces the type set).
+		if self.exclude_from_history {
+			entries.push((
+				ns_string!("org.nspasteboard.ConcealedType"),
+				Payload::Str(NSString::from_str("")),
+			));
+		}
+
+		// One session: declare every type (which empties the pasteboard), then
+		// set each representation so they coexist on the one item.
+		let type_list: Vec<&NSString> = entries.iter().map(|(media_type, _)| *media_type).collect();
+		let type_array = NSArray::from_slice(&type_list);
+		unsafe { self.clipboard.pasteboard.declareTypes_owner(&type_array, None) };
+
+		for (media_type, payload) in &entries {
+			let success = match payload {
+				Payload::Str(string) => unsafe {
+					self.clipboard.pasteboard.setString_forType(string, media_type)
+				},
+				Payload::Data(bytes) => unsafe {
+					self.clipboard.pasteboard.setData_forType(Some(bytes), media_type)
+				},
+			};
+			if !success {
+				return Err(Error::unknown("NSPasteboard set for a declared type returned false"));
+			}
+		}
+
+		Ok(())
 	}
 }
 
